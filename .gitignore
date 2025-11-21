@@ -1,0 +1,25 @@
+# Flutter/Dart
+build/
+.flutter-plugins
+.dart_tool/
+.packages
+pubspec.lock
+
+# Android
+android/.gradle/
+android/app/build/
+*.iml
+
+# iOS
+Pods/
+DerivedData/
+*.xcworkspace
+*.xcodeproj/project.xcworkspace
+
+# VS Code / IDE
+.vscode/
+.idea/
+
+# APKs / native libs
+*.apk
+*.so

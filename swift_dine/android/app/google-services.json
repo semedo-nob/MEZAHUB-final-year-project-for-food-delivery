@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "672595274421",
+    "project_id": "swiftdine-86be0",
+    "storage_bucket": "swiftdine-86be0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:672595274421:android:46fefdb7748ee65675acfc",
+        "android_client_info": {
+          "package_name": "com.example.swift_dine"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCgx8RsoHvNJTHN5ew7nBk-7-yqNtLkfgI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
