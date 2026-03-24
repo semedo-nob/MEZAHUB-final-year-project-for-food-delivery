@@ -9,11 +9,13 @@ import 'package:geocoding/geocoding.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:swift_dine/provider/cart_provider.dart';
+import 'package:swift_dine/provider/user_provider.dart';
 import 'package:swift_dine/model/order.dart';
 import 'package:swift_dine/provider/orders_provider.dart';
 import 'package:swift_dine/theme/app_colors.dart';
 import 'package:swift_dine/pages/live_tracking_screen.dart';
 import 'package:swift_dine/services/driver_tracking_service.dart';
+import 'package:swift_dine/services/backend_order_service.dart';
 import 'package:swift_dine/model/country_code.dart';
 
 
@@ -414,6 +416,33 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       final cartProvider = Provider.of<CartProvider>(context, listen: false);
       final ordersProvider = Provider.of<OrdersProvider>(context, listen: false);
 
+      // For delivery: use the user's exact current location at order time (refresh GPS)
+      Position? orderTimePosition;
+      if (_isDelivery) {
+        try {
+          orderTimePosition = await Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.high,
+              timeLimit: Duration(seconds: 10),
+            ),
+          );
+        } catch (_) {
+          orderTimePosition = _currentPosition; // fallback to last known
+        }
+        if (orderTimePosition == null) {
+          if (mounted) {
+            setState(() => _isProcessing = false);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Unable to get your current location. Enable location and try again.'),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+          return;
+        }
+      }
+
       // Format phone number for storage (remove spaces and combine with country code)
       final formattedPhone = _selectedCountry.dialCode +
           _phoneController.text.replaceAll(RegExp(r'[^\d]'), '');
@@ -427,24 +456,83 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         additionalInfo: _additionalInfoController.text.isEmpty
             ? null
             : _additionalInfoController.text,
-        lat: _currentPosition!.latitude,
-        lng: _currentPosition!.longitude,
+        lat: orderTimePosition!.latitude,
+        lng: orderTimePosition!.longitude,
       )
           : DeliveryAddress(
         fullName: _fullNameController.text,
         phone: formattedPhone,
-        address: 'Store Pickup - SwiftDine Restaurant',
-        city: 'Nairobi',
+        address: 'Store Pickup',
+        city: _cityController.text.isEmpty ? 'Nairobi' : _cityController.text,
         additionalInfo: 'Customer will pick up order',
         lat: -1.2921,
         lng: 36.8219,
       );
 
-      // Get current user ID for Firebase rules
+      final rid = cartProvider.restaurantId;
+      final rName = cartProvider.restaurantName ?? 'Restaurant';
+
+      // Backend path: cart has restaurant from Discover → place order via API
+      // Guest checkout allowed: user provides details at checkout; payment gate can be enforced later.
+      if (rid != null) {
+        await _simulatePaymentProcess();
+        final isGuest = !Provider.of<UserProvider>(context, listen: false).isLoggedIn;
+        final newOrder = await BackendOrderService().createOrder(
+          restaurantId: rid,
+          restaurantName: rName,
+          items: cartProvider.items.map((cartItem) => OrderItem(
+            id: cartItem.id,
+            name: cartItem.name,
+            imageUrl: cartItem.image,
+            quantity: cartItem.quantity,
+            price: cartItem.price,
+          )).toList(),
+          totalAmount: _isDelivery ? cartProvider.totalAmount + 100 : cartProvider.totalAmount,
+          deliveryAddress: deliveryAddress,
+          paymentMethod: _selectedPaymentMethod,
+          isGuest: isGuest,
+        );
+        if (newOrder == null) {
+          if (mounted) {
+            final message = BackendOrderService.lastOrderError ?? 'Order failed. Check connection and try again.';
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(message),
+                backgroundColor: AppColors.error,
+                behavior: SnackBarBehavior.floating,
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
+          return;
+        }
+        newOrder.paymentStatus = PaymentStatus.completed;
+        await ordersProvider.addOrder(newOrder);
+        cartProvider.clearCart();
+        if (mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Order #${newOrder.id} placed! ${_isDelivery ? 'Track it in Orders.' : 'Ready for pickup.'}'),
+              backgroundColor: AppColors.success,
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+          if (_isDelivery) {
+            _showTrackingPopup(context, newOrder);
+          } else {
+            Navigator.pushReplacementNamed(context, '/orders');
+          }
+        }
+        return;
+      }
+
+      // Fallback: no restaurant (e.g. cart from Home mock data) – create local-only order
       final user = _auth.currentUser;
       final userId = user?.uid ?? 'user_${DateTime.now().millisecondsSinceEpoch}';
 
-      // Create order object
       final newOrder = Order(
         id: 'ORD${DateTime.now().millisecondsSinceEpoch}',
         userId: userId,
@@ -458,7 +546,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         totalAmount: _isDelivery ? cartProvider.totalAmount + 100 : cartProvider.totalAmount,
         createdAt: DateTime.now(),
         status: OrderStatus.pending,
-        restaurant: 'SwiftDine Restaurant',
+        restaurant: rName,
         deliveryAddress: deliveryAddress,
         paymentMethod: _selectedPaymentMethod,
         paymentStatus: PaymentStatus.pending,
@@ -468,44 +556,34 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           lng: 36.8219,
           timestamp: DateTime.now(),
         ) : null,
-        // Firebase tracking properties
-        driverName: 'John Driver',
-        driverPhone: '+254712345678',
-        driverPhoto: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face',
-        vehicleType: 'Toyota Corolla',
-        vehiclePlate: 'KCL 123A',
-        estimatedArrivalMinutes: 25.0,
-        estimatedArrivalTime: DateTime.now().add(const Duration(minutes: 25)),
+        driverName: null,
+        driverPhone: null,
+        driverPhoto: null,
+        vehicleType: null,
+        vehiclePlate: null,
+        estimatedArrivalMinutes: null,
+        estimatedArrivalTime: null,
+        deliveryPath: null,
       );
 
       await _simulatePaymentProcess();
-
-      // Update order status
       newOrder.paymentStatus = PaymentStatus.completed;
       newOrder.status = _isDelivery ? OrderStatus.confirmed : OrderStatus.ready;
-
-      // Save to Firebase
       await _saveOrderToFirebase(newOrder);
-
-      // Save locally
       await ordersProvider.addOrder(newOrder);
-
-      if (_isDelivery) {
-        // Start Firebase tracking simulation
-        _startFirebaseOrderTracking(newOrder);
-      }
-
+      if (_isDelivery) _startFirebaseOrderTracking(newOrder);
       cartProvider.clearCart();
 
       if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Order placed successfully! ${_isDelivery ? 'Your food will be delivered soon!' : 'Your order is ready for pickup!'}'),
+            content: Text('Order placed! ${_isDelivery ? 'Your food will be delivered soon!' : 'Ready for pickup!'}'),
             backgroundColor: AppColors.success,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 2),
           ),
         );
-
-        // Show tracking popup for delivery orders
         if (_isDelivery) {
           _showTrackingPopup(context, newOrder);
         } else {
@@ -514,10 +592,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       }
     } catch (e) {
       if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Payment failed: $e'),
             backgroundColor: AppColors.error,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 3),
           ),
         );
       }

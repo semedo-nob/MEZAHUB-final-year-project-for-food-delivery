@@ -1,276 +1,226 @@
+import 'dart:async';
 import 'dart:io';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:sqflite/sqflite.dart';
-import 'package:path/path.dart';
+
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:swift_dine/services/backend_api.dart';
 import 'package:swift_dine/utils/shared_prefs_manager.dart';
 
-class AuthService {
-  final SupabaseClient _supabase = Supabase.instance.client;
-  Database? _database;
+/// Lightweight app user (replaces Supabase User). Backed by backend JWT + SharedPrefs.
+class AppUser {
+  final String id;
+  final String? email;
+  final String? name;
+  final String? phone;
+  final String? avatarUrl;
 
-  // -------------------- DATABASE --------------------
-  Future<void> _initDatabase() async {
-    if (_database != null) return;
-    _database = await openDatabase(
-      join(await getDatabasesPath(), 'swift_dine.db'),
-      onCreate: (db, version) => db.execute(
-        'CREATE TABLE user_profile(id TEXT PRIMARY KEY, email TEXT, full_name TEXT, phone TEXT, avatar_url TEXT, created_at TEXT, updated_at TEXT)',
-      ),
-      version: 1,
+  const AppUser({
+    required this.id,
+    this.email,
+    this.name,
+    this.phone,
+    this.avatarUrl,
+  });
+}
+
+/// Auth using backend API (JWT) + optional Firebase Storage for profile images.
+/// No Supabase.
+class AuthService {
+  static final AuthService _instance = AuthService._internal();
+  factory AuthService() => _instance;
+  AuthService._internal();
+
+  final StreamController<AppUser?> _userController =
+      StreamController<AppUser?>.broadcast();
+
+  Stream<AppUser?> get userStream => _userController.stream;
+
+  AppUser? _cachedUser;
+
+  /// Returns current user from SharedPrefs when we have a valid session (token + userId).
+  Future<AppUser?> getCurrentUser() async {
+    if (_cachedUser != null) return _cachedUser;
+    final token = await SharedPrefsManager().getAccessToken();
+    if (token == null || token.isEmpty) return null;
+    final prefs = await SharedPrefsManager().getUserProfile();
+    final userId = prefs['userId'];
+    if (userId == null || userId.isEmpty) return null;
+    _cachedUser = AppUser(
+      id: userId,
+      email: prefs['email'],
+      name: prefs['name'],
+      phone: prefs['phone'],
+      avatarUrl: prefs['avatarUrl'],
     );
+    return _cachedUser;
   }
 
-  // -------------------- AUTH --------------------
-  // Email & Password Sign Up - UPDATED
-  Future<User?> signUpWithEmailAndPassword({
+  /// Sign up via backend; saves tokens and profile to SharedPrefs.
+  Future<AppUser?> signUpWithEmailAndPassword({
     required String email,
     required String password,
     required String fullName,
   }) async {
-    try {
-      final response = await _supabase.auth.signUp(
-        email: email,
-        password: password,
-        data: {'full_name': fullName},
-      );
-
-      if (response.user != null) {
-        await _saveUserToLocal(response.user!, fullName: fullName);
-        await _createUserProfileInSupabase(response.user!, fullName: fullName);
-
-        // ✅ NEW: Save to SharedPreferences for instant access
-        await SharedPrefsManager().saveUserProfile(
-          name: fullName,
-          email: email,
-          phone: '+254700000000',
-          userId: response.user!.id,
-          avatarUrl: null,
-        );
-
-        print('✅ User registered and saved to all storage layers');
-      }
-
-      return response.user;
-    } catch (e) {
-      print('❌ Supabase Sign up error: $e');
-      rethrow;
-    }
+    final data = await BackendApi.register(
+      name: fullName,
+      email: email,
+      password: password,
+      role: 'customer',
+      phone: null,
+    );
+    final userMap = data['user'] as Map<String, dynamic>?;
+    if (userMap == null) return null;
+    final id = userMap['id']?.toString() ?? '';
+    final name = userMap['name'] as String? ?? fullName;
+    final phone = userMap['phone'] as String? ?? '';
+    await SharedPrefsManager().saveUserProfile(
+      name: name,
+      email: email,
+      phone: phone.isEmpty ? '+254700000000' : phone,
+      userId: id,
+      avatarUrl: null,
+    );
+    _cachedUser = AppUser(id: id, email: email, name: name, phone: phone);
+    _userController.add(_cachedUser);
+    return _cachedUser;
   }
 
-// Update syncUserData method
-  Future<void> syncUserData(User user) async {
-    try {
-      await _initDatabase();
-      final response = await _supabase
-          .from('users')
-          .select()
-          .eq('id', user.id)
-          .maybeSingle();
-
-      final userData = response != null
-          ? Map<String, dynamic>.from(response)
-          : {
-        'id': user.id,
-        'email': user.email ?? '',
-        'full_name': user.userMetadata?['full_name'] ?? 'New User',
-        'phone': user.phone ?? '+254700000000',
-        'avatar_url': user.userMetadata?['avatar_url'] ?? '',
-        'created_at': DateTime.now().toIso8601String(),
-        'updated_at': DateTime.now().toIso8601String(),
-      };
-
-      await _supabase.from('users').upsert(userData);
-      await _database!.insert(
-        'user_profile',
-        userData,
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-
-      // ✅ NEW: Also save to SharedPreferences
-      await SharedPrefsManager().saveUserProfile(
-        name: userData['full_name'],
-        email: userData['email'],
-        phone: userData['phone'],
-        userId: user.id,
-        avatarUrl: userData['avatar_url'],
-      );
-
-      print('✅ User data synced to all storage layers: ${user.id}');
-    } catch (e) {
-      print('❌ Error syncing user data: $e');
-      await _saveUserToLocal(user);
-    }
-  }
-
-// Update signOut method
-  Future<void> signOut() async {
-    try {
-      await _supabase.auth.signOut();
-      await _clearLocalUserData();
-      // ✅ NEW: Clear SharedPreferences
-      await SharedPrefsManager().clearUserProfile();
-      print('✅ User signed out and all data cleared');
-    } catch (e) {
-      print('❌ Sign out failed: $e');
-      rethrow;
-    }
-  }
-
-  Future<User?> signInWithEmailAndPassword({
+  /// Sign in via backend; saves tokens and profile to SharedPrefs.
+  Future<AppUser?> signInWithEmailAndPassword({
     required String email,
     required String password,
   }) async {
-    try {
-      final response = await _supabase.auth.signInWithPassword(
-        email: email,
-        password: password,
-      );
-      if (response.user != null) await syncUserData(response.user!);
-      return response.user;
-    } catch (e) {
-      print('❌ Sign-in error: $e');
-      rethrow;
+    final data = await BackendApi.login(email, password);
+    Map<String, dynamic>? userMap = data['user'] as Map<String, dynamic>?;
+    if (userMap == null) {
+      try {
+        final profile = await BackendApi.getProfile();
+        userMap = profile;
+      } catch (_) {
+        return null;
+      }
     }
-  }
-
-  // -------------------- PROFILE --------------------
-  Future<void> _createUserProfileInSupabase(User user, {String? fullName}) async {
-    try {
-      final userData = {
-        'id': user.id,
-        'email': user.email ?? '',
-        'full_name': fullName ?? 'New User',
-        'phone': user.phone ?? '+254700000000',
-        'avatar_url': user.userMetadata?['avatar_url'] ?? '',
-        'created_at': DateTime.now().toIso8601String(),
-        'updated_at': DateTime.now().toIso8601String(),
-      };
-      await _supabase.from('users').upsert(userData);
-      print('✅ User profile created in Supabase: ${user.id}');
-    } catch (e) {
-      print('❌ Error creating Supabase profile: $e');
-    }
-  }
-
-  Future<void> _saveUserToLocal(User user, {String? fullName}) async {
-    await _initDatabase();
-    final userData = {
-      'id': user.id,
-      'email': user.email ?? '',
-      'full_name': fullName ?? 'New User',
-      'phone': user.phone ?? '+254700000000',
-      'avatar_url': user.userMetadata?['avatar_url'] ?? '',
-      'created_at': DateTime.now().toIso8601String(),
-      'updated_at': DateTime.now().toIso8601String(),
-    };
-    await _database!.insert(
-      'user_profile',
-      userData,
-      conflictAlgorithm: ConflictAlgorithm.replace,
+    if (userMap == null) return null;
+    final id = userMap['id']?.toString() ?? '';
+    if (id.isEmpty) return null;
+    final name = userMap['name'] as String? ?? email;
+    final phone = userMap['phone'] as String? ?? '+254700000000';
+    await SharedPrefsManager().saveUserProfile(
+      name: name,
+      email: email,
+      phone: phone,
+      userId: id,
+      avatarUrl: userMap['profile_image'] as String?,
     );
-    print('✅ User saved locally: ${user.id}');
+    _cachedUser = AppUser(
+      id: id,
+      email: email,
+      name: name,
+      phone: phone,
+      avatarUrl: userMap['profile_image'] as String?,
+    );
+    _userController.add(_cachedUser);
+    return _cachedUser;
   }
 
+  /// Sign out: clear tokens and profile, emit null.
+  Future<void> signOut() async {
+    await SharedPrefsManager().clearUserProfile();
+    await SharedPrefsManager().clearTokens();
+    _cachedUser = null;
+    _userController.add(null);
+  }
 
-
-  Future<Map<String, dynamic>?> getUserProfile() async {
+  /// Sync profile from backend and save to SharedPrefs; emit updated user.
+  Future<void> syncUserData(AppUser user) async {
     try {
-      await _initDatabase();
-      final user = getCurrentUser();
-      if (user == null) return null;
-      final result = await _database!.query(
-        'user_profile',
-        where: 'id = ?',
-        whereArgs: [user.id],
+      final profile = await BackendApi.getProfile();
+      final id = profile['id']?.toString() ?? user.id;
+      final name = profile['name'] as String? ?? user.name;
+      final email = profile['email'] as String? ?? user.email;
+      final phone = profile['phone'] as String? ?? user.phone;
+      final avatarUrl = profile['profile_image'] as String? ?? user.avatarUrl;
+      await SharedPrefsManager().saveUserProfile(
+        name: name ?? 'User',
+        email: email ?? '',
+        phone: phone ?? '+254700000000',
+        userId: id,
+        avatarUrl: avatarUrl,
       );
-      return result.isNotEmpty ? result.first : null;
-    } catch (e) {
-      print('❌ Local profile fetch error: $e');
-      return null;
+      _cachedUser = AppUser(
+        id: id,
+        email: email,
+        name: name,
+        phone: phone,
+        avatarUrl: avatarUrl,
+      );
+      _userController.add(_cachedUser);
+    } catch (_) {
+      // Offline or token expired; keep existing prefs
     }
   }
 
+  /// Get profile from local storage (and optionally refresh from backend).
+  Future<Map<String, dynamic>?> getUserProfile() async {
+    final user = await getCurrentUser();
+    if (user == null) return null;
+    final prefs = await SharedPrefsManager().getUserProfile();
+    return {
+      'id': user.id,
+      'email': prefs['email'],
+      'full_name': prefs['name'],
+      'phone': prefs['phone'],
+      'avatar_url': prefs['avatarUrl'],
+    };
+  }
+
+  /// Update profile on backend and locally.
   Future<void> updateUserProfile({
     required String fullName,
     required String phone,
     String? avatarUrl,
   }) async {
-    try {
-      final user = getCurrentUser();
-      if (user == null) throw Exception('Not authenticated');
-      final updateData = {
-        'id': user.id,
-        'full_name': fullName,
-        'phone': phone,
-        'avatar_url': avatarUrl ?? '',
-        'updated_at': DateTime.now().toIso8601String(),
-      };
-      await _supabase.from('users').upsert(updateData);
-      await _initDatabase();
-      await _database!.update(
-        'user_profile',
-        updateData,
-        where: 'id = ?',
-        whereArgs: [user.id],
+    await BackendApi.updateProfile(name: fullName, phone: phone, profileImage: avatarUrl);
+    final user = await getCurrentUser();
+    if (user != null) {
+      await SharedPrefsManager().saveUserProfile(
+        name: fullName,
+        email: user.email ?? '',
+        phone: phone,
+        userId: user.id,
+        avatarUrl: avatarUrl,
       );
-      print('✅ Profile updated (Supabase + Local)');
-    } catch (e) {
-      print('❌ Profile update failed: $e');
-      rethrow;
+      _cachedUser = AppUser(
+        id: user.id,
+        email: user.email,
+        name: fullName,
+        phone: phone,
+        avatarUrl: avatarUrl ?? user.avatarUrl,
+      );
+      _userController.add(_cachedUser);
     }
   }
 
-  // -------------------- IMAGE UPLOAD --------------------
+  /// Upload profile image to Firebase Storage and return public URL.
   Future<String?> uploadProfileImage(String imagePath) async {
     try {
-      final user = getCurrentUser();
+      final user = await getCurrentUser();
       if (user == null) return null;
-
-      final fileName = '${user.id}/${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final file = File(imagePath);
-
-      // ✅ FIX: Properly await the upload and handle the response
-      await _supabase.storage
-          .from('profile-images')
-          .upload(fileName, file, fileOptions: const FileOptions(
-          upsert: true, // Allow overwriting existing files
-          contentType: 'image/jpeg'
-      ));
-
-      // ✅ FIX: Get the public URL correctly
-      final imageUrl = _supabase.storage
-          .from('profile-images')
-          .getPublicUrl(fileName);
-
-      print('✅ Image uploaded successfully: $imageUrl');
-      return imageUrl;
+      final ref = FirebaseStorage.instance
+          .ref()
+          .child('profile_images')
+          .child('${user.id}/${DateTime.now().millisecondsSinceEpoch}.jpg');
+      await ref.putFile(File(imagePath));
+      final url = await ref.getDownloadURL();
+      return url;
     } catch (e) {
-      print('❌ Image upload failed: $e');
-
-      // ✅ FIX: More detailed error logging
-      if (e is StorageException) {
-        print('Storage error: ${e.message}');
-      } else if (e is AuthException) {
-        print('Auth error: ${e.message}');
-      }
-
       return null;
     }
   }
 
-  // -------------------- AUTH STATE --------------------
-  Stream<User?> get userStream =>
-      _supabase.auth.onAuthStateChange.map((event) => event.session?.user);
-
-  User? getCurrentUser() => _supabase.auth.currentUser;
-
-
-
-  Future<void> _clearLocalUserData() async {
-    await _initDatabase();
-    await _database!.delete('user_profile');
-    print('✅ Local data cleared');
+  void close() {
+    // Intentionally left as a no-op.
+    //
+    // AuthService is a singleton; closing its stream would break listeners
+    // across the app lifetime.
   }
-
-  Future<void> close() async => _database?.close();
 }

@@ -1,8 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:swift_dine/services/auth_service.dart';
-import 'dart:async';
 import 'package:swift_dine/utils/shared_prefs_manager.dart';
 
 class UserProvider with ChangeNotifier {
@@ -15,7 +15,7 @@ class UserProvider with ChangeNotifier {
   String? _profileImageUrl;
   String? _userId;
 
-  StreamSubscription<User?>? _authSubscription;
+  StreamSubscription<AppUser?>? _authSubscription;
 
   // Getters
   String? get userName => _userName;
@@ -53,7 +53,7 @@ class UserProvider with ChangeNotifier {
   }
 
   // -------------------- AUTH METHODS --------------------
-  Future<User?> signInWithEmailAndPassword({
+  Future<AppUser?> signInWithEmailAndPassword({
     required String email,
     required String password,
   }) async {
@@ -74,7 +74,7 @@ class UserProvider with ChangeNotifier {
     }
   }
 
-  Future<User?> signUpWithEmailAndPassword({
+  Future<AppUser?> signUpWithEmailAndPassword({
     required String email,
     required String password,
     required String fullName,
@@ -116,8 +116,8 @@ class UserProvider with ChangeNotifier {
         }
       }
 
-      // 2. THEN try to sync with Supabase (background refresh)
-      final user = _authService.getCurrentUser();
+      // 2. THEN try to sync with backend (background refresh)
+      final user = await _authService.getCurrentUser();
       if (user != null) {
         final response = await _authService.getUserProfile();
         if (response != null) {
@@ -128,17 +128,16 @@ class UserProvider with ChangeNotifier {
           _profileImageUrl = response['avatar_url'];
           notifyListeners();
 
-          // Update SharedPreferences with fresh data
           await _sharedPrefs.saveUserProfile(
-            name: _userName!,
-            email: _email!,
-            phone: _phoneNumber!,
+            name: _userName ?? 'User',
+            email: _email ?? '',
+            phone: _phoneNumber ?? '+254700000000',
             userId: user.id,
             avatarUrl: _profileImageUrl,
           );
 
           if (kDebugMode) {
-            print('✅ User profile synced from Supabase: $_userName');
+            print('✅ User profile synced from backend: $_userName');
           }
         }
       }
@@ -178,7 +177,7 @@ class UserProvider with ChangeNotifier {
       );
 
       // Update SharedPreferences
-      final user = _authService.getCurrentUser();
+      final user = await _authService.getCurrentUser();
       if (user != null) {
         await _sharedPrefs.saveUserProfile(
           name: newName,
@@ -208,7 +207,7 @@ class UserProvider with ChangeNotifier {
       );
 
       // Update SharedPreferences
-      final user = _authService.getCurrentUser();
+      final user = await _authService.getCurrentUser();
       if (user != null) {
         await _sharedPrefs.saveUserProfile(
           name: _userName!,
@@ -238,7 +237,7 @@ class UserProvider with ChangeNotifier {
       );
 
       // Update SharedPreferences
-      final user = _authService.getCurrentUser();
+      final user = await _authService.getCurrentUser();
       if (user != null) {
         await _sharedPrefs.saveUserProfile(
           name: _userName!,
@@ -268,7 +267,7 @@ class UserProvider with ChangeNotifier {
       );
 
       // Update SharedPreferences with the new image
-      final user = _authService.getCurrentUser();
+      final user = await _authService.getCurrentUser();
       if (user != null) {
         await _sharedPrefs.saveUserProfile(
           name: _userName ?? 'User',
@@ -332,7 +331,7 @@ class UserProvider with ChangeNotifier {
     });
   }
 
-  Future<void> _syncUserData(User user) async {
+  Future<void> _syncUserData(AppUser user) async {
     await _authService.syncUserData(user);
     await loadUserProfile();
   }

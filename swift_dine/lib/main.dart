@@ -4,7 +4,6 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 // Pages
 import 'package:swift_dine/pages/HomeScreen.dart';
@@ -14,6 +13,7 @@ import 'package:swift_dine/pages/Register.dart';
 import 'package:swift_dine/pages/cart_page.dart';
 import 'package:swift_dine/pages/checkout_screen.dart';
 import 'package:swift_dine/pages/dicover_page.dart';
+import 'package:swift_dine/pages/restaurant_detail_page.dart';
 import 'package:swift_dine/pages/favourites_page.dart';
 import 'package:swift_dine/pages/live_tracking_screen.dart';
 import 'package:swift_dine/pages/orders.dart';
@@ -31,28 +31,20 @@ import 'package:swift_dine/provider/menu_provider.dart';
 // Services
 import 'package:swift_dine/services/firebase_notification_service.dart';
 import 'package:swift_dine/services/auth_service.dart';
-import 'package:swift_dine/services/order_service.dart';
-import 'package:swift_dine/services/sync_service.dart';
 
 // Theme & Models
 import 'package:swift_dine/theme/app_theme.dart';
 import 'package:swift_dine/model/order.dart';
+import 'package:swift_dine/model/restaurant.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Firebase
+  // Initialize Firebase (notifications, optional storage)
   await Firebase.initializeApp();
 
-  // Initialize Supabase
-  await Supabase.initialize(
-    url: 'https://igmphgapgviazyalnzuq.supabase.co', // Add your Supabase URL
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnbXBoZ2FwZ3ZpYXp5YWxuenVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA5NDUzMjgsImV4cCI6MjA3NjUyMTMyOH0.mF5EGjZEg8pDo-4wfFbw94yStPid9IYhQXvg4DhKzpk', // Add your Supabase anon key
-  );
-
-  // Initialize services
+  // Initialize services (auth is backend JWT; orders from backend)
   await FirebaseNotificationService.initialize();
-  await SyncService().initializeSync(); // Initialize sync service
 
   runApp(const MyApp());
 }
@@ -66,8 +58,6 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   StreamSubscription? _notificationSubscription;
-  StreamSubscription<Order>? _orderUpdatesSubscription;
-  final OrderService _orderService = OrderService();
   final AuthService _authService = AuthService();
 
   @override
@@ -97,43 +87,17 @@ class _MyAppState extends State<MyApp> {
       final userProvider = Provider.of<UserProvider>(context, listen: false);
 
       if (user != null) {
-        // ✅ User logged in - handle BOTH profile AND orders
         userProvider.loadUserProfile();
-        _subscribeToOrderUpdates();
         if (kDebugMode) {
           print('🔑 User authenticated: ${user.email}');
-          print('📊 Loading user profile and order subscriptions...');
         }
       } else {
-        // ✅ User logged out - handle BOTH profile AND orders
         userProvider.logout();
-        _unsubscribeFromOrderUpdates();
         if (kDebugMode) {
-          print('🔓 User signed out - clearing profile and unsubscribing from orders');
+          print('🔓 User signed out');
         }
       }
     });
-  }
-
-  void _subscribeToOrderUpdates() {
-    try {
-      _orderUpdatesSubscription = _orderService.subscribeToOrderUpdates((updatedOrder) {
-        // Update orders provider when order changes
-        final ordersProvider = Provider.of<OrdersProvider>(context, listen: false);
-        ordersProvider.updateOrder(updatedOrder);
-
-        print('🔄 Order updated via real-time: ${updatedOrder.id} - ${updatedOrder.status}');
-      });
-      print('✅ Subscribed to real-time order updates');
-    } catch (e) {
-      print('❌ Error subscribing to order updates: $e');
-    }
-  }
-
-  void _unsubscribeFromOrderUpdates() {
-    _orderUpdatesSubscription?.cancel();
-    _orderUpdatesSubscription = null;
-    print('🔕 Unsubscribed from order updates');
   }
 
   void _setupNotificationListener() {
@@ -230,7 +194,6 @@ class _MyAppState extends State<MyApp> {
   @override
   void dispose() {
     _notificationSubscription?.cancel();
-    _orderUpdatesSubscription?.cancel();
     FirebaseNotificationService.dispose();
     super.dispose();
   }
@@ -248,7 +211,6 @@ class _MyAppState extends State<MyApp> {
 
         // Add service providers if needed
         Provider<AuthService>(create: (_) => AuthService()),
-        Provider<OrderService>(create: (_) => OrderService()),
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, child) {
@@ -274,6 +236,11 @@ class _MyAppState extends State<MyApp> {
               '/tracking': (context) {
                 final order = ModalRoute.of(context)!.settings.arguments as Order;
                 return LiveTrackingScreen(order: order);
+              },
+              '/restaurant': (context) {
+                final restaurant =
+                    ModalRoute.of(context)!.settings.arguments as Restaurant;
+                return RestaurantDetailPage(restaurant: restaurant);
               },
             },
             // Enhanced error handling

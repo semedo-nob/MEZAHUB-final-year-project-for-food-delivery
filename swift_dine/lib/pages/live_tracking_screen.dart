@@ -5,6 +5,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:swift_dine/model/order.dart';
 import 'package:swift_dine/theme/app_colors.dart';
+import 'package:swift_dine/services/backend_api.dart';
 import 'package:swift_dine/services/firebase_notification_service.dart';
 import 'package:swift_dine/services/order_notification_manager.dart';
 
@@ -27,17 +28,17 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
 
   String _eta = 'Calculating...';
   double _progress = 0.0;
-
-  // Mock driver movement simulation
-  Timer? _driverTimer;
-  int _simulationStep = 0;
+  Timer? _pollTimer;
+  String _orderStatus = '';
 
   @override
   void initState() {
     super.initState();
     _initializeTracking();
-    _startDriverSimulation();
+    // Fetch once immediately to get restaurant's exact location (from backend)
+    _fetchTrackData();
     _startOrderTracking();
+    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _fetchTrackData());
   }
 
   Future<void> _startOrderTracking() async {
@@ -46,60 +47,53 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
   }
 
   void _initializeTracking() {
-    // Set restaurant position (fixed)
     _restaurantPosition = const LatLng(-1.2921, 36.8219);
-
-    // Set customer position from order
     _customerPosition = LatLng(
       widget.order.deliveryAddress.lat,
       widget.order.deliveryAddress.lng,
     );
-
-    // Set initial driver position (start from restaurant)
     _driverPosition = _restaurantPosition;
-
     _updateMarkers();
     _updatePolylines();
     _calculateProgress();
   }
 
-  void _startDriverSimulation() {
-    _driverTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
-      if (_driverPosition != null && _customerPosition != null) {
-        _simulateDriverMovement();
-      }
-    });
-  }
-
-  void _simulateDriverMovement() {
-    if (_driverPosition == null || _customerPosition == null) return;
-
-    setState(() {
-      _simulationStep++;
-
-      final double progress = min(1.0, _simulationStep / 10);
-      _driverPosition = LatLng(
-        _restaurantPosition!.latitude + (_customerPosition!.latitude - _restaurantPosition!.latitude) * progress,
-        _restaurantPosition!.longitude + (_customerPosition!.longitude - _restaurantPosition!.longitude) * progress,
-      );
-
-      _updateMarkers();
-      _updatePolylines();
-      _calculateProgress();
-      _updateETA();
-
-      if (_simulationStep == 5) {
-        _sendProgressNotification('Your driver is halfway there! 🚗');
-      } else if (_simulationStep == 8) {
-        _sendProgressNotification('Your driver is almost there! 🏠');
-      }
-    });
-
-    if (_simulationStep >= 10) {
-      _driverTimer?.cancel();
-      _sendDeliveryCompleteNotification();
-      _stopOrderTracking();
-    }
+  Future<void> _fetchTrackData() async {
+    final orderId = int.tryParse(widget.order.id);
+    if (orderId == null) return;
+    try {
+      final data = await BackendApi.trackOrder(orderId);
+      if (!mounted) return;
+      setState(() {
+        _orderStatus = data['order_status'] as String? ?? '';
+        // Use restaurant's exact location from backend (saved at registration/profile)
+        final restLat = (data['restaurant_latitude'] as num?)?.toDouble();
+        final restLng = (data['restaurant_longitude'] as num?)?.toDouble();
+        if (restLat != null && restLng != null) {
+          _restaurantPosition = LatLng(restLat, restLng);
+          if (_driverPosition == null) _driverPosition = _restaurantPosition;
+        }
+        final riderLoc = data['rider_location'] as Map<String, dynamic>?;
+        if (riderLoc != null) {
+          final lat = (riderLoc['latitude'] as num?)?.toDouble();
+          final lng = (riderLoc['longitude'] as num?)?.toDouble();
+          if (lat != null && lng != null) {
+            _driverPosition = LatLng(lat, lng);
+            _updateMarkers();
+            _updatePolylines();
+            _calculateProgress();
+            _updateETA();
+          }
+        }
+        _updateMarkers();
+        _updatePolylines();
+        _calculateProgress();
+        if (_orderStatus == 'delivered') {
+          _pollTimer?.cancel();
+          _stopOrderTracking();
+        }
+      });
+    } catch (_) {}
   }
 
   Future<void> _sendProgressNotification(String message) async {
@@ -225,7 +219,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
 
   @override
   void dispose() {
-    _driverTimer?.cancel();
+    _pollTimer?.cancel();
     _stopOrderTracking();
     super.dispose();
   }

@@ -3,12 +3,23 @@ import '../model/menu_item.dart';
 
 class FavoritesProvider with ChangeNotifier {
   final List<MenuItem> _favoriteItems = [];
+  final Set<String> _favoriteRestaurantIds = {};
 
   List<MenuItem> get favorites => _favoriteItems; // Changed from favoriteItems to match HomePage
   int get favoriteCount => _favoriteItems.length; // Added for HomePage compatibility
 
   bool isFavorite(String itemId) {
     return _favoriteItems.any((item) => item.id == itemId);
+  }
+
+  bool isFavoriteRestaurant(String restaurantId) => _favoriteRestaurantIds.contains(restaurantId);
+
+  void addFavoriteRestaurant(String restaurantId) {
+    if (_favoriteRestaurantIds.add(restaurantId)) notifyListeners();
+  }
+
+  void removeFavoriteRestaurant(String restaurantId) {
+    if (_favoriteRestaurantIds.remove(restaurantId)) notifyListeners();
   }
 
   void addToFavorites(MenuItem item) {

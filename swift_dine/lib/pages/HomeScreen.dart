@@ -22,6 +22,7 @@ import '../provider/cart_provider.dart';
 import '../provider/menu_provider.dart';
 import '../widgets/category_body_page.dart';
 import 'notification_screen.dart';
+import 'dicover_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -88,11 +89,13 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       imageUrl: '',
     );
 
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('${item.name} added to cart'),
         backgroundColor: AppColors.primary(context),
         behavior: SnackBarBehavior.floating,
+        duration: const Duration(milliseconds: 800),
         action: SnackBarAction(
           label: 'View Cart',
           textColor: Colors.white,
@@ -107,12 +110,13 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     favoritesProvider.toggleFavorite(item);
 
     final isFavorite = favoritesProvider.isFavorite(item.id);
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(isFavorite ? 'Added to favorites' : 'Removed from favorites'),
         backgroundColor: AppColors.primary(context),
         behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 1),
+        duration: const Duration(milliseconds: 800),
       ),
     );
   }
@@ -187,9 +191,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
               );
             },
           ),
-          // Other tabs remain the same...
-          // ... (rest of the tab content remains unchanged)
-          Center(child: Text('Discover Tab')),
+          const DiscoverPage(),
           Consumer<FavoritesProvider>(
             builder: (context, favoritesProvider, child) {
               if (favoritesProvider.favorites.isEmpty) {

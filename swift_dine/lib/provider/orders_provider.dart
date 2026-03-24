@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../model/order.dart';
 import '../services/order_notification_manager.dart';
+import '../services/backend_order_service.dart';
+import '../utils/shared_prefs_manager.dart';
 
 class OrdersProvider with ChangeNotifier {
   List<Order> _orders = [];
@@ -17,26 +19,41 @@ class OrdersProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final ordersJson = prefs.getStringList('user_orders') ?? [];
-
-      _orders = ordersJson.map((json) => Order.fromJson(jsonDecode(json))).toList();
-      _orders.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-
-      // Initialize notification tracking for active orders
-      await _initializeOrderTracking();
-
-      if (kDebugMode) {
-        print('Loaded ${_orders.length} orders from storage');
-        print('Active trackable orders: ${getActiveDeliveries().length}');
+      final token = await SharedPrefsManager().getAccessToken();
+      if (token != null && token.isNotEmpty) {
+        final backendOrders = await BackendOrderService().getUserOrders();
+        if (backendOrders.isNotEmpty) {
+          _orders = backendOrders;
+          await _saveOrders();
+          await _initializeOrderTracking();
+          if (kDebugMode) {
+            print('Loaded ${_orders.length} orders from backend');
+          }
+        } else {
+          _loadOrdersFromPrefs();
+        }
+      } else {
+        _loadOrdersFromPrefs();
       }
     } catch (e) {
       if (kDebugMode) {
-        print('Error loading orders: $e');
+        print('Error loading orders (fallback to prefs): $e');
       }
+      await _loadOrdersFromPrefs();
     } finally {
       _loading = false;
       notifyListeners();
+    }
+  }
+
+  Future<void> _loadOrdersFromPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final ordersJson = prefs.getStringList('user_orders') ?? [];
+    _orders = ordersJson.map((json) => Order.fromJson(jsonDecode(json))).toList();
+    _orders.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    await _initializeOrderTracking();
+    if (kDebugMode) {
+      print('Loaded ${_orders.length} orders from storage');
     }
   }
 
@@ -612,7 +629,7 @@ class OrdersProvider with ChangeNotifier {
   }
 
 
-  // Add this method to handle real-time order updates from Supabase
+  // Handles order updates (e.g. from backend or local)
   Future<void> updateOrder(Order updatedOrder) async {
     final index = _orders.indexWhere((order) => order.id == updatedOrder.id);
 

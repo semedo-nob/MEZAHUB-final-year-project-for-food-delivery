@@ -30,11 +30,13 @@ class _FavoritesPageState extends State<FavoritesPage> {
       imageUrl: '',
     );
 
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('${item.name} added to cart'),
         backgroundColor: AppColors.primary(context),
         behavior: SnackBarBehavior.floating,
+        duration: const Duration(milliseconds: 800),
       ),
     );
   }
@@ -229,9 +231,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
           elevation: 2,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
           child: InkWell(
-            onTap: () {
-              _addToCart(context, item);
-            },
+            onTap: () {},
             borderRadius: BorderRadius.circular(15),
             child: Padding(
               padding: const EdgeInsets.all(12),
@@ -300,18 +300,43 @@ class _FavoritesPageState extends State<FavoritesPage> {
                     ),
                   ),
 
-                  // Favorite button
-                  IconButton(
-                    onPressed: () {
-                      _toggleFavorite(context, item);
-                    },
-                    icon: Icon(
-                      isFavorite ? Icons.favorite : Icons.favorite_border,
-                      color: isFavorite ? Colors.red : AppColors.primary(context),
-                      size: 24,
-                    ),
-                    tooltip: isFavorite ? 'Remove from favorites' : 'Add to favorites',
-                  ),
+                  // Actions: Add to cart + remove
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        height: 34,
+                        child: ElevatedButton.icon(
+                          onPressed: () => _addToCart(context, item),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary(context),
+                            foregroundColor: AppColors.onPrimary(context),
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            elevation: 0,
+                          ),
+                          icon: const Icon(Icons.shopping_cart_outlined, size: 16),
+                          label: Text(
+                            'Add',
+                            style: GoogleFonts.poppins(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      IconButton(
+                        onPressed: () {
+                          if (isFavorite) _toggleFavorite(context, item);
+                        },
+                        icon: Icon(Icons.delete_outline, color: AppColors.error),
+                        tooltip: 'Remove from favorites',
+                      ),
+                    ],
+                  )
                 ],
               ),
             ),

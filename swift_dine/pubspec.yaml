@@ -48,6 +48,8 @@ dependencies:
   flutter_polyline_points: ^3.1.0
   dio: ^5.9.0
 
+
+
   socket_io_client: ^3.1.2
   firebase_core: ^4.2.1
   firebase_database: ^12.0.4
@@ -56,8 +58,6 @@ dependencies:
   cloud_firestore: ^6.1.0
   flutter_local_notifications: ^19.5.0
   google_sign_in: ^7.2.0
-  supabase_flutter: ^2.10.3
-  postgrest: ^2.5.0
   sqflite: ^2.4.2
   path: ^1.9.1
   url_launcher: ^6.3.2

@@ -3,9 +3,13 @@ import '../model/cart_item.dart';
 
 class CartProvider with ChangeNotifier {
   final List<CartItem> _items = [];
+  int? _restaurantId;
+  String? _restaurantName;
 
   // Getters
   List<CartItem> get items => List.unmodifiable(_items);
+  int? get restaurantId => _restaurantId;
+  String? get restaurantName => _restaurantName;
 
   // For HomePage compatibility - returns List<Map<String, dynamic>>
   List<Map<String, dynamic>> get itemsAsMap => _items.map((item) => item.toJson()).toList();
@@ -15,6 +19,13 @@ class CartProvider with ChangeNotifier {
   double get totalAmount => _items.fold(0, (sum, item) => sum + item.totalPrice); // Changed from totalPrice to match HomePage
 
   bool get isCartEmpty => _items.isEmpty;
+
+  /// Set restaurant for backend checkout (when adding from restaurant detail).
+  void setRestaurant({required int restaurantId, required String restaurantName}) {
+    _restaurantId = restaurantId;
+    _restaurantName = restaurantName;
+    notifyListeners();
+  }
 
   // Updated addItem method to match HomePage usage
   void addItem({
@@ -26,7 +37,13 @@ class CartProvider with ChangeNotifier {
     String? notes,
     List<String>? customizations,
     required String imageUrl, // Keep for backward compatibility but mark as required
+    int? restaurantId,
+    String? restaurantName,
   }) {
+    if (_items.isEmpty && restaurantId != null) {
+      _restaurantId = restaurantId;
+      _restaurantName = restaurantName ?? 'Restaurant';
+    }
     final existingIndex = _items.indexWhere((item) => item.id == id);
 
     if (existingIndex >= 0) {
@@ -119,6 +136,8 @@ class CartProvider with ChangeNotifier {
   // Clear entire cart
   void clearCart() {
     _items.clear();
+    _restaurantId = null;
+    _restaurantName = null;
     notifyListeners();
   }
 

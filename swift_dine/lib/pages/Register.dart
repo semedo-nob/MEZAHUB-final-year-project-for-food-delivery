@@ -4,7 +4,6 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:iconsax_flutter/iconsax_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:swift_dine/theme/app_colors.dart';
-import 'package:swift_dine/services/auth_service.dart';
 import '../provider/user_provider.dart';
 
 class SignUpScreen extends StatefulWidget {
@@ -29,8 +28,6 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
   bool _isControllerInitialized = false;
-
-  final AuthService _authService = AuthService();
 
   @override
   void initState() {
@@ -75,14 +72,14 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
       setState(() => _isLoading = true);
 
       try {
-        final user = await _authService.signUpWithEmailAndPassword(
+        final userProvider = Provider.of<UserProvider>(context, listen: false);
+        final user = await userProvider.signUpWithEmailAndPassword(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
           fullName: _nameController.text.trim(),
         );
 
         if (user != null) {
-          final userProvider = Provider.of<UserProvider>(context, listen: false);
           await userProvider.loadUserProfile();
 
           ScaffoldMessenger.of(context).showSnackBar(

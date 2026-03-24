@@ -10,6 +10,8 @@ class SharedPrefsManager {
   static const String _userPhoneKey = 'user_phone';
   static const String _userAvatarKey = 'user_avatar';
   static const String _userIdKey = 'user_id';
+  static const String _accessTokenKey = 'backend_access_token';
+  static const String _refreshTokenKey = 'backend_refresh_token';
 
   Future<void> saveUserProfile({
     required String name,
@@ -51,5 +53,32 @@ class SharedPrefsManager {
   Future<bool> hasUserProfile() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_userIdKey) != null;
+  }
+
+  // ---------- Backend auth tokens ----------
+
+  Future<void> saveTokens({
+    required String accessToken,
+    required String refreshToken,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_accessTokenKey, accessToken);
+    await prefs.setString(_refreshTokenKey, refreshToken);
+  }
+
+  Future<String?> getAccessToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_accessTokenKey);
+  }
+
+  Future<String?> getRefreshToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_refreshTokenKey);
+  }
+
+  Future<void> clearTokens() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_accessTokenKey);
+    await prefs.remove(_refreshTokenKey);
   }
 }

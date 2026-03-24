@@ -5,6 +5,15 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Force Kotlin stdlib alignment (avoid mismatch with deps compiled with different Kotlin)
+configurations.all {
+    resolutionStrategy {
+        force("org.jetbrains.kotlin:kotlin-stdlib:2.1.0")
+        force("org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.1.0")
+        force("org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.1.0")
+    }
+}
+
 android {
     namespace = "com.example.swift_dine"
     compileSdk = flutter.compileSdkVersion
@@ -74,5 +83,5 @@ dependencies {
     implementation("androidx.multidex:multidex:2.0.1")
     implementation("com.google.android.gms:play-services-location:21.0.1")
     implementation("com.google.android.gms:play-services-maps:18.2.0")
-    implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.24")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.1.0")
 }

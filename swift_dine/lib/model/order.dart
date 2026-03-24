@@ -1,5 +1,3 @@
-import 'package:flutter/foundation.dart';
-
 enum OrderStatus {
   pending,
   confirmed,
@@ -13,6 +11,33 @@ enum OrderStatus {
 enum PaymentMethod { stripe, mpesa, cash, mobileMoney, card }
 
 enum PaymentStatus { pending, completed, failed, refunded }
+
+OrderStatus _orderStatusFromString(String? s) {
+  if (s == null || s.isEmpty) return OrderStatus.pending;
+  final normalized = s.replaceAll('_', '').toLowerCase();
+  for (final e in OrderStatus.values) {
+    if (e.name.replaceAll('_', '').toLowerCase() == normalized) return e;
+  }
+  return OrderStatus.pending;
+}
+
+PaymentMethod _paymentMethodFromString(String? s) {
+  if (s == null || s.isEmpty) return PaymentMethod.cash;
+  final normalized = s.replaceAll('_', '').toLowerCase();
+  for (final e in PaymentMethod.values) {
+    if (e.name.replaceAll('_', '').toLowerCase() == normalized) return e;
+  }
+  return PaymentMethod.cash;
+}
+
+PaymentStatus _paymentStatusFromString(String? s) {
+  if (s == null || s.isEmpty) return PaymentStatus.pending;
+  final normalized = s.replaceAll('_', '').toLowerCase();
+  for (final e in PaymentStatus.values) {
+    if (e.name.replaceAll('_', '').toLowerCase() == normalized) return e;
+  }
+  return PaymentStatus.pending;
+}
 
 class Order {
   final String id;
@@ -84,11 +109,11 @@ class Order {
       'items': items.map((item) => item.toJson()).toList(),
       'totalAmount': totalAmount,
       'createdAt': createdAt.toIso8601String(),
-      'status': describeEnum(status),
+      'status': status.name,
       'restaurant': restaurant,
       'deliveryAddress': deliveryAddress.toJson(),
-      'paymentMethod': describeEnum(paymentMethod),
-      'paymentStatus': describeEnum(paymentStatus),
+      'paymentMethod': paymentMethod.name,
+      'paymentStatus': paymentStatus.name,
       'trackingNumber': trackingNumber,
       'currentLocation': currentLocation?.toJson(),
       // Firebase tracking properties
@@ -110,11 +135,11 @@ class Order {
       items: (json['items'] as List).map((item) => OrderItem.fromJson(item)).toList(),
       totalAmount: (json['totalAmount'] as num).toDouble(),
       createdAt: DateTime.parse(json['createdAt']),
-      status: OrderStatus.values.firstWhere((e) => describeEnum(e) == json['status']),
+      status: _orderStatusFromString(json['status'] as String?),
       restaurant: json['restaurant'],
       deliveryAddress: DeliveryAddress.fromJson(json['deliveryAddress']),
-      paymentMethod: PaymentMethod.values.firstWhere((e) => describeEnum(e) == json['paymentMethod']),
-      paymentStatus: PaymentStatus.values.firstWhere((e) => describeEnum(e) == json['paymentStatus']),
+      paymentMethod: _paymentMethodFromString(json['paymentMethod'] as String?),
+      paymentStatus: _paymentStatusFromString(json['paymentStatus'] as String?),
       trackingNumber: json['trackingNumber'],
       currentLocation: json['currentLocation'] != null
           ? LocationData.fromJson(json['currentLocation'])

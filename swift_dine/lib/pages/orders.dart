@@ -675,10 +675,15 @@ class OrderCard extends StatelessWidget {
     return '${difference.inDays} days ago';
   }
 
+  bool _isDeliveryOrder(Order order) {
+    return order.deliveryAddress.address != 'Store Pickup' &&
+        !order.deliveryAddress.address.toLowerCase().contains('store pickup');
+  }
+
+  /// True if this order can be tracked (delivery orders not yet delivered/cancelled).
   bool _canTrackOrder(Order order) {
-    return order.status == OrderStatus.onTheWay ||
-        order.status == OrderStatus.preparing ||
-        order.status == OrderStatus.ready;
+    if (!_isDeliveryOrder(order)) return false;
+    return order.status != OrderStatus.delivered && order.status != OrderStatus.cancelled;
   }
 
   void _openLiveTracking(BuildContext context, Order order) {
@@ -830,10 +835,14 @@ class OrderCard extends StatelessWidget {
                           children: [
                             Text(
                               order.status == OrderStatus.onTheWay
-                                  ? 'Driver is on the way - Tap card to track live'
+                                  ? 'Driver is on the way – track live'
                                   : order.status == OrderStatus.preparing
-                                  ? 'Restaurant is preparing - Tap card to track'
-                                  : 'Order is ready - Tap card to track delivery',
+                                  ? 'Restaurant is preparing – track progress'
+                                  : order.status == OrderStatus.ready
+                                  ? 'Order is ready – track delivery'
+                                  : order.status == OrderStatus.confirmed
+                                  ? 'Order confirmed – track status'
+                                  : 'Order placed – track your delivery',
                               style: GoogleFonts.poppins(
                                 fontWeight: FontWeight.w600,
                                 fontSize: 14,
@@ -886,8 +895,31 @@ class OrderCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  if (order.status == OrderStatus.delivered)
+                  if (canTrack) ...[
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () => _openLiveTracking(context, order),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary(context),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        icon: const Icon(Icons.location_on, size: 18),
+                        label: Text(
+                          'Track order',
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (order.status == OrderStatus.delivered) ...[
+                    const SizedBox(width: 12),
                     Expanded(
                       child: ElevatedButton(
                         onPressed: () => _reorder(context, order),
@@ -907,6 +939,7 @@ class OrderCard extends StatelessWidget {
                         ),
                       ),
                     ),
+                  ],
                 ],
               ),
             ],
@@ -1042,10 +1075,14 @@ class _OrderItemsPreview extends StatelessWidget {
 
   const _OrderItemsPreview({required this.order});
 
+  bool _isDeliveryOrder(Order order) {
+    return order.deliveryAddress.address != 'Store Pickup' &&
+        !order.deliveryAddress.address.toLowerCase().contains('store pickup');
+  }
+
   bool _canTrackOrder(Order order) {
-    return order.status == OrderStatus.onTheWay ||
-        order.status == OrderStatus.preparing ||
-        order.status == OrderStatus.ready;
+    if (!_isDeliveryOrder(order)) return false;
+    return order.status != OrderStatus.delivered && order.status != OrderStatus.cancelled;
   }
 
   @override
